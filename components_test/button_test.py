@@ -5,7 +5,7 @@ import time
 GPIO.setmode(GPIO.BCM)
 
 # Define the GPIO pin number
-button_pin = 26
+button_pin = 0
 
 # Set up the GPIO pin for the button
 GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)

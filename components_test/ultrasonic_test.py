@@ -5,8 +5,8 @@ import time
 GPIO.setmode(GPIO.BCM)
 
 # Define GPIO pins
-TRIG_PIN = 17
-ECHO_PIN = 27
+TRIG_PIN = 0
+ECHO_PIN = 0
 
 # Set up GPIO pins
 GPIO.setup(TRIG_PIN, GPIO.OUT)

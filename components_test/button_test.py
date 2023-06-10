@@ -18,7 +18,7 @@ def button_callback(channel):
     if mode:
         # Generate the audio using gTTS
         tts = gTTS(mode)
-        filename = f"{mode.lower().replace(' ', '_')}_mode.mp3"
+        filename = f"{mode.lower().replace(' ', '_')}.mp3"
         tts.save(filename)
 
         # Print the mode to the terminal

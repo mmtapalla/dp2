@@ -3,10 +3,11 @@ import sys
 import time
 import cv2
 import numpy as np
+import RPi.GPIO as GPIO
+from gtts import gTTS
 from tflite_support.task import core
 from tflite_support.task import processor
 from tflite_support.task import vision
-from gtts import gTTS
 import os
 
 
@@ -18,47 +19,71 @@ _FONT_SIZE = 1
 _FONT_THICKNESS = 1
 _TEXT_COLOR = (52, 29, 197)  # Raspberry Pi Red
 
+# GPIO Push Buttons
+BUTTON_PIN_1 = 17
+BUTTON_PIN_2 = 18
+
 
 def speak(voice):
+    """Convert text to speech using gTTS and play the audio."""
     tts = gTTS(text=voice)
     tts.save("detect.mp3")
     os.system("mpg321 detect.mp3")
 
 
-def count_freq(li):
+def count_freq(li, button_pin):
+    """Count the frequency of items in a list and speak the results."""
     freq = {}
     for item in li:
         freq[item] = li.count(item)
-    voice = str(freq)
-    if cv2.waitKey(1) & 0xFF == ord('r'):
+
+    if GPIO.input(button_pin) == GPIO.LOW:
+        voice = ""
+        for item, count in freq.items():
+            if voice:
+                voice += ", "
+            voice += f"{count} {item}"
+        voice = voice.replace(", ", ", and ")
         speak(voice)
         print(freq)
 
 
-def visualize_detections(image, detection_result):
+def visualize_detections(image, detection_result, button_pin, margin, row_size, font_size, font_thickness, text_color):
     """Draw bounding boxes on the image based on the detection results."""
     classes = []
     for detection in detection_result.detections:
         bbox = detection.bounding_box
         start_point = bbox.origin_x, bbox.origin_y
         end_point = bbox.origin_x + bbox.width, bbox.origin_y + bbox.height
-        cv2.rectangle(image, start_point, end_point, _TEXT_COLOR, 3)
+        cv2.rectangle(image, start_point, end_point, text_color, 3)
 
         category = detection.categories[0]
         class_name = category.category_name
         classes.append(class_name)
         probability = round(category.score, 2)
         result_text = f"{class_name} ({probability})"
-        text_location = (_MARGIN + bbox.origin_x, _MARGIN + _ROW_SIZE + bbox.origin_y)
+        text_location = (margin + bbox.origin_x, margin + row_size + bbox.origin_y)
         cv2.putText(image, result_text, text_location, cv2.FONT_HERSHEY_PLAIN,
-                    _FONT_SIZE, _TEXT_COLOR, _FONT_THICKNESS)
+                    font_size, text_color, font_thickness)
 
-    count_freq(classes)
+    count_freq(classes, button_pin)
+
+    return image
+
+
+def process_image(image, detector, button_pin, margin, row_size, font_size, font_thickness, text_color):
+    """Process a single image frame: flip, convert colors, run inference, and visualize detections."""
+    image = cv2.flip(image, 1)
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    input_tensor = vision.TensorImage.create_from_array(rgb_image)
+    detection_result = detector.detect(input_tensor)
+    image = visualize_detections(image, detection_result, button_pin, margin, row_size, font_size, font_thickness, text_color)
 
     return image
 
 
 def run_inference(model_path, camera_id, width, height, num_threads, enable_edgetpu):
+    """Run the object detection model on live video input."""
     # Variables to calculate FPS
     counter, fps = 0, 0
     start_time = time.time()
@@ -78,14 +103,10 @@ def run_inference(model_path, camera_id, width, height, num_threads, enable_edge
     while cap.isOpened():
         success, image = cap.read()
         if not success:
-            sys.exit('ERROR: Unable to read from webcam. Please verify your webcam settings.')
+            raise ValueError('ERROR: Unable to read from webcam. Please verify your webcam settings.')
 
         counter += 1
-        image = cv2.flip(image, 1)
-        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        input_tensor = vision.TensorImage.create_from_array(rgb_image)
-        detection_result = detector.detect(input_tensor)
-        image = visualize_detections(image, detection_result)
+        image = process_image(image, detector, BUTTON_PIN_2, _MARGIN, _ROW_SIZE, _FONT_SIZE, _FONT_THICKNESS, _TEXT_COLOR)
 
         # Calculate the FPS
         if counter % 10 == 0:
@@ -104,6 +125,7 @@ def run_inference(model_path, camera_id, width, height, num_threads, enable_edge
         if cv2.waitKey(1) == 27:
             break
 
+    # Release video capture object and destroy windows
     cap.release()
     cv2.destroyAllWindows()
 
@@ -119,8 +141,29 @@ def parse_arguments():
     return parser.parse_args()
 
 
+def button1_callback(channel):
+    """Button 1 callback function."""
+    print("Button 1 pressed")
+
+
+def button2_callback(channel):
+    """Button 2 callback function."""
+    print("Button 2 pressed")
+
+
+def setup_gpio():
+    """Set up GPIO pins and event detection for buttons."""
+    # Initialize GPIO
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(BUTTON_PIN_1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup(BUTTON_PIN_2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.add_event_detect(BUTTON_PIN_1, GPIO.FALLING, callback=button1_callback, bouncetime=200)
+    GPIO.add_event_detect(BUTTON_PIN_2, GPIO.FALLING, callback=button2_callback, bouncetime=200)
+
+
 def main():
     args = parse_arguments()
+    setup_gpio()
     run_inference(args.model, args.cameraId, args.frameWidth, args.frameHeight, args.numThreads, args.enableEdgeTPU)
 
 

@@ -1,26 +1,48 @@
 import RPi.GPIO as GPIO
-import time
+from gtts import gTTS
+import subprocess
 
-# Set the GPIO mode to BCM
-GPIO.setmode(GPIO.BCM)
+# Configuration for button pins and corresponding modes
+button_config = {17: "Auto mode", 18: "Manual mode"}
 
-# Define the GPIO pin number
-button_pin = 0
+def setup_buttons():
+    # Set the GPIO mode and specify the pin numbers for the buttons
+    GPIO.setmode(GPIO.BCM)
 
-# Set up the GPIO pin for the button
-GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    # Set up the GPIO pins as input with a pull-up resistor
+    for pin in button_config:
+        GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-try:
-    while True:
-        # Read the state of the button
-        button_state = GPIO.input(button_pin)
+def button_callback(channel):
+    mode = button_config.get(channel)
+    if mode:
+        # Generate the audio using gTTS
+        tts = gTTS(mode)
+        filename = f"{mode.lower().replace(' ', '_')}_mode.mp3"
+        tts.save(filename)
 
-        if button_state == GPIO.LOW:
-            print("Button pressed!")
-        
-        # Add a small delay to debounce the button
-        time.sleep(0.1)
+        # Print the mode to the terminal
+        print(f"{mode}")
 
-except KeyboardInterrupt:
-    # Clean up GPIO settings on keyboard interrupt
-    GPIO.cleanup()
+        # Play the audio using mpg321
+        subprocess.run(["mpg321", "-q", filename], check=True)
+
+def main():
+    setup_buttons()
+
+    # Add event detection for both buttons, only on the falling edge
+    for pin in button_config:
+        GPIO.add_event_detect(pin, GPIO.FALLING, callback=button_callback, bouncetime=200)
+
+    # Keep the script running until interrupted
+    try:
+        while True:
+            pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Clean up the GPIO settings
+        GPIO.cleanup()
+
+if __name__ == "__main__":
+    main()

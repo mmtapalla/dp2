@@ -8,6 +8,18 @@ from collections import Counter
 from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
+# Constants
+MODEL_PATH = 'efficientdet_lite0.tflite'
+MARGIN = 10
+ROW_SIZE = 10
+FONT_SIZE = 1
+FONT_THICKNESS = 1
+TEXT_COLOR = (52, 29, 197)
+
+# GPIO Constants
+BUTTON_PIN_1 = 17
+BUTTON_PIN_2 = 18
+
 
 class ObjectDetector:
     def __init__(self, model_path, margin, row_size, font_size, font_thickness, text_color):
@@ -22,18 +34,19 @@ class ObjectDetector:
         """Visualize object detections on the image."""
         classes = []
         for detection in detection_result.detections:
-            bbox = detection.bounding_box
-            start_point, end_point = (bbox.origin_x, bbox.origin_y), (
-                bbox.origin_x + bbox.width, bbox.origin_y + bbox.height)
-            cv2.rectangle(image, start_point, end_point, self.text_color, 3)
             category = detection.categories[0]
-            class_name = category.category_name
-            classes.append(class_name)
-            probability = round(category.score, 2)
-            result_text = f"{class_name} ({probability})"
-            text_location = (self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
-            cv2.putText(image, result_text, text_location, cv2.FONT_HERSHEY_PLAIN, self.font_size, self.text_color,
-                        self.font_thickness)
+            probability = round(category.score * 100)
+            if probability >= 75:  # Probability threshold; Ignores detected objects at certain percentage
+                bbox = detection.bounding_box
+                start_point, end_point = (bbox.origin_x, bbox.origin_y), (
+                    bbox.origin_x + bbox.width, bbox.origin_y + bbox.height)
+                cv2.rectangle(image, start_point, end_point, self.text_color, 3)
+                class_name = category.category_name
+                classes.append(class_name)
+                result_text = f"{class_name} ({probability}%)"
+                text_location = (self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
+                cv2.putText(image, result_text, text_location, cv2.FONT_HERSHEY_PLAIN, self.font_size, self.text_color,
+                            self.font_thickness)
         return image, classes
 
     def process_image(self, image, detector):
@@ -61,121 +74,120 @@ class ObjectDetector:
             success, image = cap.read()
             if not success:
                 raise RuntimeError('Unable to read from the webcam. Please verify your webcam settings.')
-
+                tts = gTTS("Unable to read from the webcam. Please verify your webcam settings.")
+                tts.save("audio/cam_error.mp3")
+                time.sleep(.5)
+                os.system("mpg321 audio/cam_error.mp3")
             image, classes = self.process_image(image, detector)
-
             # Perform interaction
             ProgramProper.interaction(classes)
-
             cv2.imshow('4301 Hazard Detector', image)
             if cv2.waitKey(1) == 27:
                 break
-
         cap.release()
         cv2.destroyAllWindows()
 
 
 class ProgramProper:
-    BUTTON_PIN_1 = 17
-    BUTTON_PIN_2 = 18
+    AUTO_MODE = True
+    AUTO_COUNTER = time.time()
+    AUTO_INTERVAL = 10
 
-    def __init__(self):
-        self.AUTO_MODE = True
-        self.AUTO_COUNTER = time.time()
-        self.AUTO_INTERVAL = 10
-
-    def setup_gpio(self):
+    @staticmethod
+    def setup_gpio():
         """Set up GPIO pins and event detection."""
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(self.BUTTON_PIN_1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(self.BUTTON_PIN_2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(BUTTON_PIN_1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup(BUTTON_PIN_2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-    def interaction(self, classes):
-        freq = Counter(classes)
+    @staticmethod
+    def interaction(classes):
+        freq = dict(Counter(classes))
 
         try:
-            if self.AUTO_MODE:
-                if GPIO.input(self.BUTTON_PIN_1) == GPIO.LOW:  # Cycles through intervals 10, 20 and 30 seconds
-                    if self.AUTO_INTERVAL == 10:
+            if ProgramProper.AUTO_MODE:
+                if GPIO.input(BUTTON_PIN_1) == GPIO.LOW: # Cycles through intervals 10, 20 and 30 seconds
+                    if ProgramProper.AUTO_INTERVAL == 10:
                         print("20-second interval")
-                        self.AUTO_INTERVAL = 0
-                        tts = gTTS("20-second interval")
-                        tts.save("auto_20sec.mp3")
+                        ProgramProper.AUTO_INTERVAL = 0
+                        # tts = gTTS("20-second interval")
+                        # tts.save("audio/auto_20sec.mp3")
                         time.sleep(.5)
-                        os.system("mpg321 auto_20sec.mp3")
-                        self.AUTO_INTERVAL = 20
-                    elif self.AUTO_INTERVAL == 20:
+                        os.system("mpg321 audio/auto_20sec.mp3")
+                        ProgramProper.AUTO_INTERVAL = 20
+                    elif ProgramProper.AUTO_INTERVAL == 20:
                         print("30-second interval")
-                        self.AUTO_INTERVAL = 0
-                        tts = gTTS("30-second interval")
-                        tts.save("auto_30sec.mp3")
+                        ProgramProper.AUTO_INTERVAL = 0
+                        # tts = gTTS("30-second interval")
+                        # tts.save("audio/auto_30sec.mp3")
                         time.sleep(.5)
-                        os.system("mpg321 auto_30sec.mp3")
-                        self.AUTO_INTERVAL = 30
+                        os.system("mpg321 audio/auto_30sec.mp3")
+                        ProgramProper.AUTO_INTERVAL = 30
                     else:
-                        self.AUTO_INTERVAL = 0
+                        ProgramProper.AUTO_INTERVAL = 0
                         print("10-second interval")
-                        tts = gTTS("10-second interval")
-                        tts.save("auto_10sec.mp3")
+                        # tts = gTTS("10-second interval")
+                        # tts.save("audio/auto_10sec.mp3")
                         time.sleep(.5)
-                        os.system("mpg321 auto_10sec.mp3")
-                        self.AUTO_INTERVAL = 10
-                if GPIO.input(self.BUTTON_PIN_2) == GPIO.LOW:
-                    self.AUTO_MODE = False
+                        os.system("mpg321 audio/auto_10sec.mp3")
+                        ProgramProper.AUTO_INTERVAL = 10
+                if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+                    ProgramProper.AUTO_MODE = False
                     print("Manual Mode")
-                    os.system("mpg321 manual_mode.mp3")
-                if time.time() - self.AUTO_COUNTER >= self.AUTO_INTERVAL:
-                    self.AUTO_COUNTER = time.time()
+                    # tts = gTTS("Manual mode!")
+                    # tts.save("audio/manual_mode.mp3")
+                    time.sleep(.5)
+                    os.system("mpg321 audio/manual_mode.mp3")
+                if time.time() - ProgramProper.AUTO_COUNTER >= ProgramProper.AUTO_INTERVAL:
+                    ProgramProper.AUTO_COUNTER = time.time()
                     if bool(freq):
                         voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
                         tts = gTTS(text=voice)
-                        tts.save("detect.mp3")
+                        tts.save("audio/detect.mp3")
                         time.sleep(.5)
-                        os.system("mpg321 detect.mp3")
+                        os.system("mpg321 audio/detect.mp3")
                         print(freq)
             else:
-                if GPIO.input(self.BUTTON_PIN_1) == GPIO.LOW:
-                    self.AUTO_MODE = True
+                if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+                    ProgramProper.AUTO_MODE = True
                     print("Auto Mode")
-                    os.system("mpg321 auto_mode.mp3")
-                if GPIO.input(self.BUTTON_PIN_2) == GPIO.LOW:
+                    # tts = gTTS("Auto mode!")
+                    # tts.save("audio/auto_mode.mp3")
+                    time.sleep(.5)
+                    os.system("mpg321 audio/auto_mode.mp3")
+                if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                     voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
                     tts = gTTS(text=voice)
-                    tts.save("detect.mp3")
+                    tts.save("audio/detect.mp3")
                     time.sleep(.5)
-                    os.system("mpg321 detect.mp3")
+                    os.system("mpg321 audio/detect.mp3")
                     print(freq)
-
         except AssertionError:
-            pass
+            # tts = gTTS("No detections!")
+            # tts.save("audio/manual_nd.mp3")
+            time.sleep(.5)
+            os.system("mpg321 audio/manual_nd.mp3")
 
-    def main(self):
+    @staticmethod
+    def main():
         """Main function."""
-        args = self.parse_arguments()
-        self.setup_gpio()
-        detector = ObjectDetector(args.model, args.margin, args.row_size, args.font_size, args.font_thickness,
-                                  args.text_color)
+        args = ProgramProper.parse_arguments()
+        ProgramProper.setup_gpio()
+        detector = ObjectDetector(args.model, MARGIN, ROW_SIZE, FONT_SIZE, FONT_THICKNESS, TEXT_COLOR)
         detector.run_inference(args.cameraId, args.frameWidth, args.frameHeight, args.numThreads, args.enableEdgeTPU)
 
     @staticmethod
     def parse_arguments():
         """Parse command-line arguments."""
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument('--model', help='Path of the object detection model.', default='efficientdet_lite0.tflite')
+        parser.add_argument('--model', help='Path of the object detection model.', default=MODEL_PATH)
         parser.add_argument('--cameraId', help='Id of camera.', type=int, default=0)
         parser.add_argument('--frameWidth', help='Width of frame to capture from camera.', type=int, default=640)
         parser.add_argument('--frameHeight', help='Height of frame to capture from camera.', type=int, default=480)
         parser.add_argument('--numThreads', help='Number of CPU threads to run the model.', type=int, default=4)
         parser.add_argument('--enableEdgeTPU', help='Whether to run the model on EdgeTPU.', action='store_true',
                             default=False)
-        parser.add_argument('--margin', help='Margin for bounding box visualization.', type=int, default=10)
-        parser.add_argument('--rowSize', help='Size of row for text display.', type=int, default=10)
-        parser.add_argument('--fontSize', help='Font size for text display.', type=int, default=1)
-        parser.add_argument('--fontThickness', help='Font thickness for text display.', type=int, default=1)
-        parser.add_argument('--textColor', help='Text color for text display.', type=tuple, default=(52, 29, 197))
-        args = parser.parse_args()
-
-        return args
+        return parser.parse_args()
 
 if __name__ == '__main__':
     program = ProgramProper()

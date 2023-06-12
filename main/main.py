@@ -2,9 +2,11 @@ import argparse
 import cv2
 import numpy as np
 import os
+import re
 import RPi.GPIO as GPIO
 import time
 from collections import Counter
+from datetime import datetime
 from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
@@ -80,7 +82,7 @@ class ObjectDetector:
                 os.system("mpg321 audio/cam_error.mp3")
             image, classes = self.process_image(image, detector)
             # Perform interaction
-            ProgramProper.interaction(classes)
+            ProgramProper.interaction(classes, cap)
             cv2.imshow('4301 Hazard Detector', image)
             if cv2.waitKey(1) == 27:
                 break
@@ -101,70 +103,98 @@ class ProgramProper:
         GPIO.setup(BUTTON_PIN_2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
     @staticmethod
-    def interaction(classes):
+    def interaction(classes, cap):
         freq = dict(Counter(classes))
+        current_time = datetime.now().strftime("%Y/%m/%d_%H:%M:%S")
 
-        try:
-            if ProgramProper.AUTO_MODE:
-                if GPIO.input(BUTTON_PIN_1) == GPIO.LOW: # Cycles through intervals 10, 20 and 30 seconds
-                    if ProgramProper.AUTO_INTERVAL == 10:
-                        print("20-second interval")
-                        ProgramProper.AUTO_INTERVAL = 0
-                        # tts = gTTS("20-second interval")
-                        # tts.save("audio/auto_20sec.mp3")
-                        time.sleep(.5)
-                        os.system("mpg321 audio/auto_20sec.mp3")
-                        ProgramProper.AUTO_INTERVAL = 20
-                    elif ProgramProper.AUTO_INTERVAL == 20:
-                        print("30-second interval")
-                        ProgramProper.AUTO_INTERVAL = 0
-                        # tts = gTTS("30-second interval")
-                        # tts.save("audio/auto_30sec.mp3")
-                        time.sleep(.5)
-                        os.system("mpg321 audio/auto_30sec.mp3")
-                        ProgramProper.AUTO_INTERVAL = 30
-                    else:
-                        ProgramProper.AUTO_INTERVAL = 0
-                        print("10-second interval")
-                        # tts = gTTS("10-second interval")
-                        # tts.save("audio/auto_10sec.mp3")
-                        time.sleep(.5)
-                        os.system("mpg321 audio/auto_10sec.mp3")
-                        ProgramProper.AUTO_INTERVAL = 10
-                if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
-                    ProgramProper.AUTO_MODE = False
-                    print("Manual Mode")
-                    # tts = gTTS("Manual mode!")
-                    # tts.save("audio/manual_mode.mp3")
+        if ProgramProper.AUTO_MODE:
+            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+                ProgramProper.toggle_auto_interval()
+            if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+                ProgramProper.AUTO_MODE = False
+                print("Manual Mode")
+                time.sleep(.5)
+                os.system("mpg321 audio/manual_mode.mp3")
+            ProgramProper.process_auto_mode(freq, current_time, cap)  # Pass the 'cap' argument here
+
+        else:
+            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+                ProgramProper.AUTO_MODE = True
+                print("Auto Mode")
+                time.sleep(.5)
+                os.system("mpg321 audio/auto_mode.mp3")
+            if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+                ProgramProper.process_manual_mode(freq, current_time, cap)  # Pass the 'cap' argument here
+
+    @staticmethod
+    def toggle_auto_interval():
+        if ProgramProper.AUTO_INTERVAL == 10:
+            print("20-second interval")
+            ProgramProper.AUTO_INTERVAL = 0
+            time.sleep(.5)
+            os.system("mpg321 audio/auto_20sec.mp3")
+            ProgramProper.AUTO_INTERVAL = 20
+        elif ProgramProper.AUTO_INTERVAL == 20:
+            print("30-second interval")
+            ProgramProper.AUTO_INTERVAL = 0
+            time.sleep(.5)
+            os.system("mpg321 audio/auto_30sec.mp3")
+            ProgramProper.AUTO_INTERVAL = 30
+        else:
+            ProgramProper.AUTO_INTERVAL = 0
+            print("10-second interval")
+            time.sleep(.5)
+            os.system("mpg321 audio/auto_10sec.mp3")
+            ProgramProper.AUTO_INTERVAL = 10
+
+    @staticmethod
+    def process_auto_mode(freq, current_time, cap):
+        if bool(freq):
+            if time.time() - ProgramProper.AUTO_COUNTER >= ProgramProper.AUTO_INTERVAL and bool(freq):
+                ProgramProper.AUTO_COUNTER = time.time()
+                image_name = re.sub(r'[/:_]', '', current_time)
+                image_path = f"image/{image_name}.jpg"
+                voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
+                tts = gTTS(text=voice)
+                tts.save("audio/detect.mp3")
+                time.sleep(.5)
+                os.system("mpg321 audio/detect.mp3")
+                freq['time'] = current_time
+                print(freq)
+                ret, frame = cap.read()
+                if ret:
+                    cv2.imwrite(image_path, frame)
+                    print(f"Image saved: {image_path}")
+                else:
+                    print("Failed to capture image")
+                    tts = gTTS("Failed to capture image")
+                    tts.save("audio/capture_failed.mp3")
                     time.sleep(.5)
-                    os.system("mpg321 audio/manual_mode.mp3")
-                if time.time() - ProgramProper.AUTO_COUNTER >= ProgramProper.AUTO_INTERVAL:
-                    ProgramProper.AUTO_COUNTER = time.time()
-                    if bool(freq):
-                        voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
-                        tts = gTTS(text=voice)
-                        tts.save("audio/detect.mp3")
-                        time.sleep(.5)
-                        os.system("mpg321 audio/detect.mp3")
-                        print(freq)
+                    os.system("mpg321 audio/capture_failed.mp3")
+
+    @staticmethod
+    def process_manual_mode(freq, current_time, cap):
+        if bool(freq):
+            image_name = re.sub(r'[/:_]', '', current_time)
+            image_path = f"image/{image_name}.jpg"
+            voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
+            tts = gTTS(text=voice)
+            tts.save("audio/detect.mp3")
+            time.sleep(.5)
+            os.system("mpg321 audio/detect.mp3")
+            freq['time'] = current_time
+            print(freq)
+            ret, frame = cap.read()
+            if ret:
+                cv2.imwrite(image_path, frame)
+                print(f"Image saved: {image_path}")
             else:
-                if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
-                    ProgramProper.AUTO_MODE = True
-                    print("Auto Mode")
-                    # tts = gTTS("Auto mode!")
-                    # tts.save("audio/auto_mode.mp3")
-                    time.sleep(.5)
-                    os.system("mpg321 audio/auto_mode.mp3")
-                if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
-                    voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
-                    tts = gTTS(text=voice)
-                    tts.save("audio/detect.mp3")
-                    time.sleep(.5)
-                    os.system("mpg321 audio/detect.mp3")
-                    print(freq)
-        except AssertionError:
-            # tts = gTTS("No detections!")
-            # tts.save("audio/manual_nd.mp3")
+                print("Failed to capture image")
+                tts = gTTS("Failed to capture image")
+                tts.save("audio/capture_failed.mp3")
+                time.sleep(.5)
+                os.system("mpg321 audio/capture_failed.mp3")
+        else:
             time.sleep(.5)
             os.system("mpg321 audio/manual_nd.mp3")
 

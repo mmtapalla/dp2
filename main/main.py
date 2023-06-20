@@ -11,7 +11,7 @@ from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
 # Constants
-MODEL_PATH = 'efficientdet_lite0.tflite'
+MODEL_PATH = 'model/dp2.tflite'
 MARGIN = 10
 ROW_SIZE = 10
 FONT_SIZE = 1
@@ -19,8 +19,11 @@ FONT_THICKNESS = 1
 TEXT_COLOR = (52, 29, 197)
 
 # GPIO Constants
-BUTTON_PIN_1 = 17
-BUTTON_PIN_2 = 18
+BUTTON_PIN_1 = 17 # Auto mode
+BUTTON_PIN_2 = 18 # Manual mode
+BUTTON_PIN_3 = 27
+BUTTON_PIN_4 = 22
+BUTTON_PIN_5 = 23
 
 
 class ObjectDetector:
@@ -38,7 +41,7 @@ class ObjectDetector:
         for detection in detection_result.detections:
             category = detection.categories[0]
             probability = round(category.score * 100)
-            if probability >= 75:  # Probability threshold; Ignores detected objects at certain percentage
+            if probability >= 50:  # Probability threshold; Ignores detected objects at certain percentage
                 bbox = detection.bounding_box
                 start_point, end_point = (bbox.origin_x, bbox.origin_y), (
                     bbox.origin_x + bbox.width, bbox.origin_y + bbox.height)
@@ -75,15 +78,15 @@ class ObjectDetector:
         while cap.isOpened():
             success, image = cap.read()
             if not success:
-                raise RuntimeError('Unable to read from the webcam. Please verify your webcam settings.')
-                tts = gTTS("Unable to read from the webcam. Please verify your webcam settings.")
+                raise RuntimeError('Unable to read from the webcam. Please verify your webcam settings!')
+                tts = gTTS("Unable to read from the webcam. Please verify your webcam settings!")
                 tts.save("audio/cam_error.mp3")
                 time.sleep(.5)
                 os.system("mpg321 audio/cam_error.mp3")
             image, classes = self.process_image(image, detector)
             # Perform interaction
             ProgramProper.interaction(classes, cap)
-            cv2.imshow('4301 Hazard Detector', image)
+            cv2.imshow('4301 Hazards Detector', image)
             if cv2.waitKey(1) == 27:
                 break
         cap.release()
@@ -112,40 +115,47 @@ class ProgramProper:
                 ProgramProper.toggle_auto_interval()
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = False
-                print("Manual Mode")
+                print("Manual Mode!")
+                # tts = gTTS("Manual Mode!")
+                # tts.save("audio/manual_mode.mp3")
                 time.sleep(.5)
                 os.system("mpg321 audio/manual_mode.mp3")
-            ProgramProper.process_auto_mode(freq, current_time, cap)  # Pass the 'cap' argument here
+            ProgramProper.process_auto_mode(freq, current_time, cap)
 
         else:
             if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = True
-                print("Auto Mode")
+                print("Auto Mode!")
+                # tts = gTTS("Auto Mode!")
+                # tts.save("audio/auto_mode.mp3")
                 time.sleep(.5)
                 os.system("mpg321 audio/auto_mode.mp3")
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
-                ProgramProper.process_manual_mode(freq, current_time, cap)  # Pass the 'cap' argument here
+                ProgramProper.process_manual_mode(freq, current_time, cap)
 
     @staticmethod
     def toggle_auto_interval():
         if ProgramProper.AUTO_INTERVAL == 10:
-            print("20-second interval")
-            ProgramProper.AUTO_INTERVAL = 0
+            ProgramProper.AUTO_INTERVAL = 20
+            print("20-second interval!")
+            # tts = gTTS("20-second interval!")
+            # tts.save("mpg321 audio/auto_20sec.mp3")
             time.sleep(.5)
             os.system("mpg321 audio/auto_20sec.mp3")
-            ProgramProper.AUTO_INTERVAL = 20
         elif ProgramProper.AUTO_INTERVAL == 20:
-            print("30-second interval")
-            ProgramProper.AUTO_INTERVAL = 0
+            ProgramProper.AUTO_INTERVAL = 30
+            print("30-second interval!")
+            # tts = gTTS("30-second interval!")
+            # tts.save("mpg321 audio/auto_30sec.mp3")
             time.sleep(.5)
             os.system("mpg321 audio/auto_30sec.mp3")
-            ProgramProper.AUTO_INTERVAL = 30
         else:
-            ProgramProper.AUTO_INTERVAL = 0
-            print("10-second interval")
+            ProgramProper.AUTO_INTERVAL = 10
+            print("10-second interval!")
+            # tts = gTTS("10-second interval!")
+            # tts.save("mpg321 audio/auto_10sec.mp3")
             time.sleep(.5)
             os.system("mpg321 audio/auto_10sec.mp3")
-            ProgramProper.AUTO_INTERVAL = 10
 
     @staticmethod
     def process_auto_mode(freq, current_time, cap):

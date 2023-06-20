@@ -19,11 +19,11 @@ FONT_THICKNESS = 1
 TEXT_COLOR = (52, 29, 197)
 
 # GPIO Constants
-BUTTON_PIN_1 = 17 # Auto mode
-BUTTON_PIN_2 = 18 # Manual mode
-BUTTON_PIN_3 = 27
-BUTTON_PIN_4 = 22
-BUTTON_PIN_5 = 23
+BUTTON_PIN_1 = 17 # Auto Mode
+BUTTON_PIN_2 = 18 # Manual Mode
+BUTTON_PIN_3 = 27 # Unused
+BUTTON_PIN_4 = 22 # Unused
+BUTTON_PIN_5 = 23 # Unused
 
 
 class ObjectDetector:
@@ -41,7 +41,7 @@ class ObjectDetector:
         for detection in detection_result.detections:
             category = detection.categories[0]
             probability = round(category.score * 100)
-            if probability >= 50:  # Probability threshold; Ignores detected objects at certain percentage
+            if probability >= 50:  # Probability threshold
                 bbox = detection.bounding_box
                 start_point, end_point = (bbox.origin_x, bbox.origin_y), (
                     bbox.origin_x + bbox.width, bbox.origin_y + bbox.height)

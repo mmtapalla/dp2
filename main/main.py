@@ -13,7 +13,7 @@ from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
 # Constants
-MODEL_PATH = 'model/efficientdet_lite0.tflite'
+MODEL_PATH = 'model/dp2.tflite'
 PROB_THRESHOLD = 25
 MAX_OBJ = 5
 MARGIN = 10

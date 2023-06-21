@@ -13,7 +13,7 @@ from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
 # Constants
-MODEL_PATH = 'model/dp2.tflite'
+MODEL_PATH = 'model/efficientdet_lite0.tflite'
 PROB_THRESHOLD = 25
 MAX_OBJ = 5
 MARGIN = 10
@@ -118,11 +118,11 @@ class ProgramProper:
 
     @staticmethod
     def on_switch():
-        print("Hazard detector ready to use! Auto Mode!")
-        #tts = gTTS("Hazard detector ready to use! Auto Mode!")
-        # tts.save("audio/switch_on.mp3")
+        print("Object detector ready to use! Auto Mode!")
+        # tts = gTTS("Object detector ready to use! Auto Mode!")
+        # tts.save("audio/switch_on-alt.mp3")
         time.sleep(1)
-        os.system("mpg321 audio/switch_on.mp3")
+        os.system("mpg321 audio/switch_on-alt.mp3")
 
     @staticmethod
     def interaction(classes, cap):

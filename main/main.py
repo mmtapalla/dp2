@@ -2,22 +2,17 @@ import argparse
 import cv2
 import numpy as np
 import os
-import psutil
 import pyttsx3
-import re
 import RPi.GPIO as GPIO
+import re
 import subprocess
+import sys
 import time
 from collections import Counter
 from datetime import datetime
-# from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
-# Constants
-MODELS_PATH = {
-    'TFLite': 'model/efficientdet_lite0.tflite',
-    'First Model': 'model/dp2.tflite'
-}
+MODELS_PATH = {}
 PROB_THRESHOLD = 25
 MAX_OBJ = 5
 MARGIN = 10
@@ -111,7 +106,7 @@ class ObjectDetector:
             if MAX_OBJ != detection_options.max_results:
                 for detector in detectors:
                     detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
-                    options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
+                    options = vision.ObjectDetectorOptions(base_options=base_options[model_name], detection_options=detection_options)
                     detector = vision.ObjectDetector.create_from_options(options)
         cap.release()
         cv2.destroyAllWindows()
@@ -134,10 +129,55 @@ class ProgramProper:
 
     @staticmethod
     def on_greet():
-        print("Hazard detector on! Auto Mode!")
-        # gTTS("Hazard detector on! Auto Mode!").save("audio/boot.mp3")
-        time.sleep(1)
-        os.system("mpg321 -q audio/boot.mp3")
+        print("Choose a model: [1] Hazard Detector or [2] Object Detector")
+        time.sleep(.5)
+        os.system("mpg321 -q audio/model_prompt.mp3")
+        
+        while True:
+            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+                print("Hazard Detector ON! Auto Mode!")
+                time.sleep(1)
+                os.system("mpg321 -q audio/model_hazard.mp3")
+                ProgramProper.use_hazard_detector()
+                break
+            elif GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+                print("Object Detector ON! Auto Mode!")
+                time.sleep(1)
+                os.system("mpg321 -q audio/model_object.mp3")
+                ProgramProper.use_object_detector()
+                break
+            elif (
+                GPIO.input(BUTTON_PIN_3) == GPIO.LOW
+                or GPIO.input(BUTTON_PIN_4) == GPIO.LOW
+            ):
+                time.sleep(1)
+                os.system("mpg321 -q audio/model_prompt.mp3")
+            elif GPIO.input(BUTTON_PIN_5) == GPIO.LOW:
+                ProgramProper.shutdown()
+                break
+
+    @staticmethod
+    def use_hazard_detector():
+        global MODELS_PATH
+        MODELS_PATH = {
+            'proto': 'model/dp2.tflite',
+            # 'cat, dog': 'model/.tflite',
+            # 'knife': 'model/.tflite',
+            # 'scissor': 'model/.tflite',
+            # 'fire, smokes': 'model/.tflite',
+            # 'pot': 'model/.tflite',
+            # 'stove': 'model/.tflite',
+            # 'chair': 'model/.tflite',
+            # 'stair': 'model/.tflite',
+            # 'table': 'model/.tflite',
+        }
+
+    @staticmethod
+    def use_object_detector():
+        global MODELS_PATH
+        MODELS_PATH = {
+            'default': 'model/efficientdet_lite0.tflite'
+        }
 
     @staticmethod
     def interaction(classes, cap):
@@ -150,7 +190,6 @@ class ProgramProper:
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = False
                 print("Manual Mode!")
-                # gTTS("Manual Mode!").save("audio/manual.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/manual.mp3")
             if GPIO.input(BUTTON_PIN_3) == GPIO.LOW:
@@ -165,7 +204,6 @@ class ProgramProper:
             if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = True
                 print("Auto Mode!")
-                # gTTS("Auto Mode!").save("audio/auto.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/auto.mp3")
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
@@ -182,19 +220,16 @@ class ProgramProper:
         if ProgramProper.AUTO_INTERVAL == 10:
             ProgramProper.AUTO_INTERVAL = 20
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
         elif ProgramProper.AUTO_INTERVAL == 20:
             ProgramProper.AUTO_INTERVAL = 30
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
         else:
             ProgramProper.AUTO_INTERVAL = 10
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
 
@@ -205,7 +240,6 @@ class ProgramProper:
         if MAX_OBJ > 10:
             MAX_OBJ = 5
         print(f"{MAX_OBJ} max detections!")
-        # gTTS(f"{MAX_OBJ} max detections!").save(f"audio/max_{MAX_OBJ}-det.mp3")
         time.sleep(1)
         os.system(f"mpg321 -q audio/max_{MAX_OBJ}-det.mp3")
 
@@ -215,52 +249,51 @@ class ProgramProper:
         if PROB_THRESHOLD == 25:
             PROB_THRESHOLD = 50
             print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("Medium Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
         elif PROB_THRESHOLD == 50:
             PROB_THRESHOLD = 75
             print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("High Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
         else:
             PROB_THRESHOLD = 25
             print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("Low Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
 
     @staticmethod
     def shutdown():
+        global MODELS_PATH
         print("Choose an action: [1] Shutdown or [2] Reboot")
-        # gTTS("Choose an action: Press 1 to shutdown or 2 to reboot.").save("audio/off-prompt.mp3")
         time.sleep(1)
         os.system("mpg321 -q audio/off-prompt.mp3")
 
         while True:
             if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
                 print("Shutting down!")
-                # gTTS("Shutting down!").save("audio/shut.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut.mp3")
                 subprocess.run(["sudo", "shutdown", "-h", "now"])
             elif GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                 print("Rebooting!")
-                # gTTS("Rebooting!").save("audio/shut_reboot.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_reboot.mp3")
-                subprocess.run(["sudo", "reboot", "-h", "now"])
+                subprocess.call([sys.executable, __file__])
             elif (
                 GPIO.input(BUTTON_PIN_3) == GPIO.LOW
                 or GPIO.input(BUTTON_PIN_4) == GPIO.LOW
                 or GPIO.input(BUTTON_PIN_5) == GPIO.LOW
             ):
                 print("Shutdown cancelled!")
-                # gTTS("Shutdown cancelled!").save("audio/shut_cancelled.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_cancelled.mp3")
-                break
+                if bool(MODELS_PATH):
+                    ProgramProper.interaction()
+                    break
+                else:
+                    ProgramProper.on_greet()
+                    break
 
     @staticmethod
     def process_auto_mode(freq, current_time, cap):
@@ -271,7 +304,6 @@ class ProgramProper:
                 image_path = f"image/{image_name}.jpg"
                 voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
 
-                # Initialize pyttsx3 engine
                 engine = pyttsx3.init()
                 engine.save_to_file(voice, "audio/detection.mp3")
                 engine.runAndWait()
@@ -282,14 +314,8 @@ class ProgramProper:
                 print(freq)
                 ret, frame = cap.read()
                 if ret:
-                    # cv2.imwrite(image_path, frame)
-                    # print(f"Image saved: {image_path}")
                     pass
                 else:
-                    # print("Failed to capture image")
-                    # gTTS("Failed to capture image").save("audio/capture_failed.mp3")
-                    # time.sleep(1)
-                    # os.system("mpg321 -q audio/capture_failed.mp3")
                     pass
 
     @staticmethod
@@ -299,7 +325,6 @@ class ProgramProper:
             image_path = f"image/{image_name}.jpg"
             voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
 
-            # Initialize pyttsx3 engine
             engine = pyttsx3.init()
             engine.save_to_file(voice, "audio/detection.mp3")
             engine.runAndWait()
@@ -310,18 +335,11 @@ class ProgramProper:
             print(freq)
             ret, frame = cap.read()
             if ret:
-                # cv2.imwrite(image_path, frame)
-                # print(f"Image saved: {image_path}")
                 pass
             else:
-                # print("Failed to capture image")
-                # gTTS("Failed to capture image").save("audio/error_capture.mp3")
-                # time.sleep(1)
-                # os.system("mpg321 -q audio/error_capture.mp3")
                 pass
         else:
             print("No detections!")
-            # gTTS("No detections!").save("audio/detection_none.mp3")
             time.sleep(1)
             os.system("mpg321 -q audio/detection_none.mp3")
 
@@ -329,7 +347,6 @@ class ProgramProper:
     def main():
         """Main function."""
         args = ProgramProper.parse_arguments()
-        ProgramProper.setup_gpio()
         models_path = {}
         for model_name, model_path in MODELS_PATH.items():
             models_path[model_name] = model_path
@@ -350,6 +367,6 @@ class ProgramProper:
 
 
 if __name__ == '__main__':
-    program = ProgramProper()
-    program.on_greet()
-    program.main()
+    ProgramProper().setup_gpio()
+    ProgramProper().on_greet()
+    ProgramProper().main()

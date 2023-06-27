@@ -14,7 +14,10 @@ from datetime import datetime
 from tflite_support.task import core, processor, vision
 
 # Constants
-MODEL_PATH = 'model/dp2.tflite'
+MODELS_PATH = {
+    'TFLite': 'model/efficientdet_lite0.tflite',
+    'First Model': 'model/dp2.tflite'
+}
 PROB_THRESHOLD = 25
 MAX_OBJ = 5
 MARGIN = 10
@@ -24,16 +27,16 @@ FONT_THICKNESS = 1
 TEXT_COLOR = (52, 29, 197)
 
 # GPIO Constants
-BUTTON_PIN_1 = 17 # Auto Mode
-BUTTON_PIN_2 = 18 # Manual Mode
-BUTTON_PIN_3 = 27 # Max Detection Quantity
-BUTTON_PIN_4 = 22 # Probability Threshold
-BUTTON_PIN_5 = 23 # Off Switch
+BUTTON_PIN_1 = 17  # Auto Mode
+BUTTON_PIN_2 = 18  # Manual Mode
+BUTTON_PIN_3 = 27  # Max Detection Quantity
+BUTTON_PIN_4 = 22  # Probability Threshold
+BUTTON_PIN_5 = 23  # Off Switch
 
 
 class ObjectDetector:
-    def __init__(self, model_path, margin, row_size, font_size, font_thickness, text_color):
-        self.model_path = model_path
+    def __init__(self, models_path, margin, row_size, font_size, font_thickness, text_color):
+        self.models_path = models_path
         self.margin = margin
         self.row_size = row_size
         self.font_size = font_size
@@ -54,18 +57,22 @@ class ObjectDetector:
                 class_name = category.category_name
                 classes.append(class_name)
                 result_text = f"{class_name} ({probability}%)"
-                text_location = (self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
+                text_location = (
+                    self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
                 cv2.putText(image, result_text, text_location, cv2.FONT_HERSHEY_PLAIN, self.font_size, self.text_color,
                             self.font_thickness)
         return image, classes
 
-    def process_image(self, image, detector):
+    def process_image(self, image, detectors):
         """Process the image by performing object detection and visualization."""
         image = cv2.flip(image, 1)
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         input_tensor = vision.TensorImage.create_from_array(rgb_image)
-        detection_result = detector.detect(input_tensor)
-        image, classes = self.visualize_detections(image, detection_result)
+        classes = []
+        for detector in detectors:
+            detection_result = detector.detect(input_tensor)
+            image, class_names = self.visualize_detections(image, detection_result)
+            classes.extend(class_names)
         return image, classes
 
     def run_inference(self, camera_id, width, height, num_threads, enable_edgetpu):
@@ -74,11 +81,16 @@ class ObjectDetector:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        # Initialize the object detector
-        base_options = core.BaseOptions(file_name=self.model_path, use_coral=enable_edgetpu, num_threads=num_threads)
-        detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
-        options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
-        detector = vision.ObjectDetector.create_from_options(options)
+        # Initialize the object detectors
+        base_options = {}
+        detectors = []
+        for model_name, model_path in self.models_path.items():
+            base_options[model_name] = core.BaseOptions(
+                file_name=model_path, use_coral=enable_edgetpu, num_threads=num_threads)
+            detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
+            options = vision.ObjectDetectorOptions(base_options=base_options[model_name], detection_options=detection_options)
+            detector = vision.ObjectDetector.create_from_options(options)
+            detectors.append(detector)
 
         while cap.isOpened():
             success, image = cap.read()
@@ -90,16 +102,17 @@ class ObjectDetector:
                 engine.runAndWait()
                 time.sleep(1)
                 os.system("mpg321 -q audio/error_cam.mp3")
-            image, classes = self.process_image(image, detector)
+            image, classes = self.process_image(image, detectors)
             # Perform interaction
             ProgramProper.interaction(classes, cap)
             cv2.imshow('4301 Hazard Detector', image)
-            if cv2.waitKey(1) == 27: # Press 'Esc' key to exit
+            if cv2.waitKey(1) == 27:  # Press 'Esc' key to exit
                 break
             if MAX_OBJ != detection_options.max_results:
-                detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
-                options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
-                detector = vision.ObjectDetector.create_from_options(options)
+                for detector in detectors:
+                    detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
+                    options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
+                    detector = vision.ObjectDetector.create_from_options(options)
         cap.release()
         cv2.destroyAllWindows()
 
@@ -184,7 +197,7 @@ class ProgramProper:
             # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-            
+
     @staticmethod
     def toggle_max_objects():
         global MAX_OBJ
@@ -195,7 +208,7 @@ class ProgramProper:
         # gTTS(f"{MAX_OBJ} max detections!").save(f"audio/max_{MAX_OBJ}-det.mp3")
         time.sleep(1)
         os.system(f"mpg321 -q audio/max_{MAX_OBJ}-det.mp3")
-        
+
     @staticmethod
     def toggle_prob_threshold():
         global PROB_THRESHOLD
@@ -217,22 +230,22 @@ class ProgramProper:
             # gTTS("Low Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
-        
+
     @staticmethod
     def shutdown():
-        print("Choose an acton: [1] Shutdown or [2] Reboot")
+        print("Choose an action: [1] Shutdown or [2] Reboot")
         # gTTS("Choose an action: Press 1 to shutdown or 2 to reboot.").save("audio/off-prompt.mp3")
         time.sleep(1)
         os.system("mpg321 -q audio/off-prompt.mp3")
 
         while True:
-            if (GPIO.input(BUTTON_PIN_1) == GPIO.LOW):
+            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
                 print("Shutting down!")
                 # gTTS("Shutting down!").save("audio/shut.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut.mp3")
                 subprocess.run(["sudo", "shutdown", "-h", "now"])
-            elif (GPIO.input(BUTTON_PIN_2) == GPIO.LOW):
+            elif GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                 print("Rebooting!")
                 # gTTS("Rebooting!").save("audio/shut_reboot.mp3")
                 time.sleep(1)
@@ -248,7 +261,7 @@ class ProgramProper:
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_cancelled.mp3")
                 break
-        
+
     @staticmethod
     def process_auto_mode(freq, current_time, cap):
         if bool(freq):
@@ -317,14 +330,16 @@ class ProgramProper:
         """Main function."""
         args = ProgramProper.parse_arguments()
         ProgramProper.setup_gpio()
-        detector = ObjectDetector(args.model, MARGIN, ROW_SIZE, FONT_SIZE, FONT_THICKNESS, TEXT_COLOR)
+        models_path = {}
+        for model_name, model_path in MODELS_PATH.items():
+            models_path[model_name] = model_path
+        detector = ObjectDetector(models_path, MARGIN, ROW_SIZE, FONT_SIZE, FONT_THICKNESS, TEXT_COLOR)
         detector.run_inference(args.cameraId, args.frameWidth, args.frameHeight, args.numThreads, args.enableEdgeTPU)
 
     @staticmethod
     def parse_arguments():
         """Parse command-line arguments."""
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-        parser.add_argument('--model', help='Path of the object detection model.', default=MODEL_PATH)
         parser.add_argument('--cameraId', help='Id of camera.', type=int, default=0)
         parser.add_argument('--frameWidth', help='Width of frame to capture from camera.', type=int, default=640)
         parser.add_argument('--frameHeight', help='Height of frame to capture from camera.', type=int, default=480)
@@ -332,6 +347,7 @@ class ProgramProper:
         parser.add_argument('--enableEdgeTPU', help='Whether to run the model on EdgeTPU.', action='store_true',
                             default=False)
         return parser.parse_args()
+
 
 if __name__ == '__main__':
     program = ProgramProper()

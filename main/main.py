@@ -2,18 +2,20 @@ import argparse
 import cv2
 import numpy as np
 import os
+import psutil
 import pyttsx3
-import RPi.GPIO as GPIO
 import re
+import RPi.GPIO as GPIO
 import subprocess
-import sys
 import time
 from collections import Counter
 from datetime import datetime
+# from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
-MODELS_PATH = {}
-PROB_THRESHOLD = 25
+# Constants
+MODEL_PATH = 'model/efficientdet_lite0.tflite'
+PROB_THRESHOLD = 50
 MAX_OBJ = 5
 MARGIN = 10
 ROW_SIZE = 10
@@ -22,16 +24,16 @@ FONT_THICKNESS = 1
 TEXT_COLOR = (52, 29, 197)
 
 # GPIO Constants
-BUTTON_PIN_1 = 17  # Auto Mode
-BUTTON_PIN_2 = 18  # Manual Mode
-BUTTON_PIN_3 = 27  # Max Detection Quantity
-BUTTON_PIN_4 = 22  # Probability Threshold
-BUTTON_PIN_5 = 23  # Off Switch
+BUTTON_PIN_1 = 17 # Auto Mode
+BUTTON_PIN_2 = 18 # Manual Mode
+BUTTON_PIN_3 = 27 # Max Detection Quantity
+BUTTON_PIN_4 = 22 # Probability Threshold
+BUTTON_PIN_5 = 23 # Off Switch
 
 
 class ObjectDetector:
-    def __init__(self, models_path, margin, row_size, font_size, font_thickness, text_color):
-        self.models_path = models_path
+    def __init__(self, model_path, margin, row_size, font_size, font_thickness, text_color):
+        self.model_path = model_path
         self.margin = margin
         self.row_size = row_size
         self.font_size = font_size
@@ -52,22 +54,18 @@ class ObjectDetector:
                 class_name = category.category_name
                 classes.append(class_name)
                 result_text = f"{class_name} ({probability}%)"
-                text_location = (
-                    self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
+                text_location = (self.margin + bbox.origin_x, self.margin + self.row_size + bbox.origin_y)
                 cv2.putText(image, result_text, text_location, cv2.FONT_HERSHEY_PLAIN, self.font_size, self.text_color,
                             self.font_thickness)
         return image, classes
 
-    def process_image(self, image, detectors):
+    def process_image(self, image, detector):
         """Process the image by performing object detection and visualization."""
         image = cv2.flip(image, 1)
         rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         input_tensor = vision.TensorImage.create_from_array(rgb_image)
-        classes = []
-        for detector in detectors:
-            detection_result = detector.detect(input_tensor)
-            image, class_names = self.visualize_detections(image, detection_result)
-            classes.extend(class_names)
+        detection_result = detector.detect(input_tensor)
+        image, classes = self.visualize_detections(image, detection_result)
         return image, classes
 
     def run_inference(self, camera_id, width, height, num_threads, enable_edgetpu):
@@ -76,16 +74,11 @@ class ObjectDetector:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-        # Initialize the object detectors
-        base_options = {}
-        detectors = []
-        for model_name, model_path in self.models_path.items():
-            base_options[model_name] = core.BaseOptions(
-                file_name=model_path, use_coral=enable_edgetpu, num_threads=num_threads)
-            detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
-            options = vision.ObjectDetectorOptions(base_options=base_options[model_name], detection_options=detection_options)
-            detector = vision.ObjectDetector.create_from_options(options)
-            detectors.append(detector)
+        # Initialize the object detector
+        base_options = core.BaseOptions(file_name=self.model_path, use_coral=enable_edgetpu, num_threads=num_threads)
+        detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
+        options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
+        detector = vision.ObjectDetector.create_from_options(options)
 
         while cap.isOpened():
             success, image = cap.read()
@@ -97,17 +90,16 @@ class ObjectDetector:
                 engine.runAndWait()
                 time.sleep(1)
                 os.system("mpg321 -q audio/error_cam.mp3")
-            image, classes = self.process_image(image, detectors)
+            image, classes = self.process_image(image, detector)
             # Perform interaction
             ProgramProper.interaction(classes, cap)
             cv2.imshow('4301 Hazard Detector', image)
-            if cv2.waitKey(1) == 27:  # Press 'Esc' key to exit
+            if cv2.waitKey(1) == 27: # Press 'Esc' key to exit
                 break
             if MAX_OBJ != detection_options.max_results:
-                for detector in detectors:
-                    detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
-                    options = vision.ObjectDetectorOptions(base_options=base_options[model_name], detection_options=detection_options)
-                    detector = vision.ObjectDetector.create_from_options(options)
+                detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
+                options = vision.ObjectDetectorOptions(base_options=base_options, detection_options=detection_options)
+                detector = vision.ObjectDetector.create_from_options(options)
         cap.release()
         cv2.destroyAllWindows()
 
@@ -129,55 +121,10 @@ class ProgramProper:
 
     @staticmethod
     def on_greet():
-        print("Choose a model: [1] Hazard Detector or [2] Object Detector")
-        time.sleep(.5)
-        os.system("mpg321 -q audio/model_prompt.mp3")
-        
-        while True:
-            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
-                print("Hazard Detector ON! Auto Mode!")
-                time.sleep(1)
-                os.system("mpg321 -q audio/model_hazard.mp3")
-                ProgramProper.use_hazard_detector()
-                break
-            elif GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
-                print("Object Detector ON! Auto Mode!")
-                time.sleep(1)
-                os.system("mpg321 -q audio/model_object.mp3")
-                ProgramProper.use_object_detector()
-                break
-            elif (
-                GPIO.input(BUTTON_PIN_3) == GPIO.LOW
-                or GPIO.input(BUTTON_PIN_4) == GPIO.LOW
-            ):
-                time.sleep(1)
-                os.system("mpg321 -q audio/model_prompt.mp3")
-            elif GPIO.input(BUTTON_PIN_5) == GPIO.LOW:
-                ProgramProper.shutdown()
-                break
-
-    @staticmethod
-    def use_hazard_detector():
-        global MODELS_PATH
-        MODELS_PATH = {
-            'proto': 'model/dp2.tflite',
-            # 'cat, dog': 'model/.tflite',
-            # 'knife': 'model/.tflite',
-            # 'scissor': 'model/.tflite',
-            # 'fire, smokes': 'model/.tflite',
-            # 'pot': 'model/.tflite',
-            # 'stove': 'model/.tflite',
-            # 'chair': 'model/.tflite',
-            # 'stair': 'model/.tflite',
-            # 'table': 'model/.tflite',
-        }
-
-    @staticmethod
-    def use_object_detector():
-        global MODELS_PATH
-        MODELS_PATH = {
-            'default': 'model/efficientdet_lite0.tflite'
-        }
+        print("Object detector on! Auto Mode!")
+        # gTTS("Hazard detector on! Auto Mode!").save("audio/boot.mp3")
+        time.sleep(1)
+        os.system("mpg321 -q audio/model_object.mp3")
 
     @staticmethod
     def interaction(classes, cap):
@@ -190,6 +137,7 @@ class ProgramProper:
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = False
                 print("Manual Mode!")
+                # gTTS("Manual Mode!").save("audio/manual.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/manual.mp3")
             if GPIO.input(BUTTON_PIN_3) == GPIO.LOW:
@@ -204,6 +152,7 @@ class ProgramProper:
             if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = True
                 print("Auto Mode!")
+                # gTTS("Auto Mode!").save("audio/auto.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/auto.mp3")
             if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
@@ -220,19 +169,22 @@ class ProgramProper:
         if ProgramProper.AUTO_INTERVAL == 10:
             ProgramProper.AUTO_INTERVAL = 20
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
+            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
         elif ProgramProper.AUTO_INTERVAL == 20:
             ProgramProper.AUTO_INTERVAL = 30
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
+            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
         else:
             ProgramProper.AUTO_INTERVAL = 10
             print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
+            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-
+            
     @staticmethod
     def toggle_max_objects():
         global MAX_OBJ
@@ -240,61 +192,63 @@ class ProgramProper:
         if MAX_OBJ > 10:
             MAX_OBJ = 5
         print(f"{MAX_OBJ} max detections!")
+        # gTTS(f"{MAX_OBJ} max detections!").save(f"audio/max_{MAX_OBJ}-det.mp3")
         time.sleep(1)
         os.system(f"mpg321 -q audio/max_{MAX_OBJ}-det.mp3")
-
+        
     @staticmethod
     def toggle_prob_threshold():
         global PROB_THRESHOLD
         if PROB_THRESHOLD == 25:
             PROB_THRESHOLD = 50
             print(f"{PROB_THRESHOLD}% probability threshold!")
+            # gTTS("Medium Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
         elif PROB_THRESHOLD == 50:
             PROB_THRESHOLD = 75
             print(f"{PROB_THRESHOLD}% probability threshold!")
+            # gTTS("High Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
         else:
             PROB_THRESHOLD = 25
             print(f"{PROB_THRESHOLD}% probability threshold!")
+            # gTTS("Low Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
             time.sleep(1)
             os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
-
+        
     @staticmethod
     def shutdown():
-        global MODELS_PATH
-        print("Choose an action: [1] Shutdown or [2] Reboot")
+        print("Choose an acton: [1] Shutdown or [2] Reboot")
+        # gTTS("Choose an action: Press 1 to shutdown or 2 to reboot.").save("audio/off-prompt.mp3")
         time.sleep(1)
         os.system("mpg321 -q audio/off-prompt.mp3")
 
         while True:
-            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+            if (GPIO.input(BUTTON_PIN_1) == GPIO.LOW):
                 print("Shutting down!")
+                # gTTS("Shutting down!").save("audio/shut.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut.mp3")
                 subprocess.run(["sudo", "shutdown", "-h", "now"])
-            elif GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+            elif (GPIO.input(BUTTON_PIN_2) == GPIO.LOW):
                 print("Rebooting!")
+                # gTTS("Rebooting!").save("audio/shut_reboot.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_reboot.mp3")
-                subprocess.call([sys.executable, __file__])
+                subprocess.run(["sudo", "reboot", "-h", "now"])
             elif (
                 GPIO.input(BUTTON_PIN_3) == GPIO.LOW
                 or GPIO.input(BUTTON_PIN_4) == GPIO.LOW
                 or GPIO.input(BUTTON_PIN_5) == GPIO.LOW
             ):
                 print("Shutdown cancelled!")
+                # gTTS("Shutdown cancelled!").save("audio/shut_cancelled.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_cancelled.mp3")
-                if bool(MODELS_PATH):
-                    ProgramProper.interaction()
-                    break
-                else:
-                    ProgramProper.on_greet()
-                    break
-
+                break
+        
     @staticmethod
     def process_auto_mode(freq, current_time, cap):
         if bool(freq):
@@ -304,6 +258,7 @@ class ProgramProper:
                 image_path = f"image/{image_name}.jpg"
                 voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
 
+                # Initialize pyttsx3 engine
                 engine = pyttsx3.init()
                 engine.save_to_file(voice, "audio/detection.mp3")
                 engine.runAndWait()
@@ -314,8 +269,14 @@ class ProgramProper:
                 print(freq)
                 ret, frame = cap.read()
                 if ret:
+                    # cv2.imwrite(image_path, frame)
+                    # print(f"Image saved: {image_path}")
                     pass
                 else:
+                    # print("Failed to capture image")
+                    # gTTS("Failed to capture image").save("audio/capture_failed.mp3")
+                    # time.sleep(1)
+                    # os.system("mpg321 -q audio/capture_failed.mp3")
                     pass
 
     @staticmethod
@@ -325,6 +286,7 @@ class ProgramProper:
             image_path = f"image/{image_name}.jpg"
             voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
 
+            # Initialize pyttsx3 engine
             engine = pyttsx3.init()
             engine.save_to_file(voice, "audio/detection.mp3")
             engine.runAndWait()
@@ -335,11 +297,18 @@ class ProgramProper:
             print(freq)
             ret, frame = cap.read()
             if ret:
+                # cv2.imwrite(image_path, frame)
+                # print(f"Image saved: {image_path}")
                 pass
             else:
+                # print("Failed to capture image")
+                # gTTS("Failed to capture image").save("audio/error_capture.mp3")
+                # time.sleep(1)
+                # os.system("mpg321 -q audio/error_capture.mp3")
                 pass
         else:
             print("No detections!")
+            # gTTS("No detections!").save("audio/detection_none.mp3")
             time.sleep(1)
             os.system("mpg321 -q audio/detection_none.mp3")
 
@@ -347,16 +316,15 @@ class ProgramProper:
     def main():
         """Main function."""
         args = ProgramProper.parse_arguments()
-        models_path = {}
-        for model_name, model_path in MODELS_PATH.items():
-            models_path[model_name] = model_path
-        detector = ObjectDetector(models_path, MARGIN, ROW_SIZE, FONT_SIZE, FONT_THICKNESS, TEXT_COLOR)
+        ProgramProper.setup_gpio()
+        detector = ObjectDetector(args.model, MARGIN, ROW_SIZE, FONT_SIZE, FONT_THICKNESS, TEXT_COLOR)
         detector.run_inference(args.cameraId, args.frameWidth, args.frameHeight, args.numThreads, args.enableEdgeTPU)
 
     @staticmethod
     def parse_arguments():
         """Parse command-line arguments."""
         parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        parser.add_argument('--model', help='Path of the object detection model.', default=MODEL_PATH)
         parser.add_argument('--cameraId', help='Id of camera.', type=int, default=0)
         parser.add_argument('--frameWidth', help='Width of frame to capture from camera.', type=int, default=640)
         parser.add_argument('--frameHeight', help='Height of frame to capture from camera.', type=int, default=480)
@@ -365,8 +333,6 @@ class ProgramProper:
                             default=False)
         return parser.parse_args()
 
-
 if __name__ == '__main__':
-    ProgramProper().setup_gpio()
-    ProgramProper().on_greet()
-    ProgramProper().main()
+    ProgramProper.on_greet()
+    ProgramProper.main()

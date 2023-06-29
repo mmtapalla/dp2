@@ -10,11 +10,10 @@ import subprocess
 import time
 from collections import Counter
 from datetime import datetime
-# from gtts import gTTS
 from tflite_support.task import core, processor, vision
 
 # Constants
-MODEL_PATH = 'model/efficientdet_lite0.tflite'
+MODEL_PATH = 'model/MobileNetSSDv2.tflite'
 PROB_THRESHOLD = 50
 MAX_OBJ = 5
 MARGIN = 10
@@ -24,12 +23,10 @@ FONT_THICKNESS = 1
 TEXT_COLOR = (52, 29, 197)
 
 # GPIO Constants
-BUTTON_PIN_1 = 17 # Auto Mode
-BUTTON_PIN_2 = 18 # Manual Mode
-BUTTON_PIN_3 = 27 # Max Detection Quantity
-BUTTON_PIN_4 = 22 # Probability Threshold
-BUTTON_PIN_5 = 23 # Off Switch
+""" Auto Mode, Manual Mode, Max Detection Quantity, Propabilty Threshold, Shutdown"""
+BUTTON_PINS = [17, 18, 27, 22, 23]
 
+greet = True
 
 class ObjectDetector:
     def __init__(self, model_path, margin, row_size, font_size, font_thickness, text_color):
@@ -69,6 +66,7 @@ class ObjectDetector:
         return image, classes
 
     def run_inference(self, camera_id, width, height, num_threads, enable_edgetpu):
+        global greet
         """Run the object detection inference loop."""
         cap = cv2.VideoCapture(camera_id)
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
@@ -83,18 +81,14 @@ class ObjectDetector:
         while cap.isOpened():
             success, image = cap.read()
             if not success:
-                engine = pyttsx3.init()
-                error_message = "Unable to read from the webcam. Please verify your webcam settings!"
-                raise RuntimeError(error_message)
-                engine.save_to_file(error_message, "audio/error_cam.mp3")
-                engine.runAndWait()
-                time.sleep(1)
-                os.system("mpg321 -q audio/error_cam.mp3")
+                raise RuntimeError("Unable to read from the webcam. Please verify your webcam settings!")
+
             image, classes = self.process_image(image, detector)
-            # Perform interaction
             ProgramProper.interaction(classes, cap)
-            cv2.imshow('4301 Hazard Detector', image)
-            if cv2.waitKey(1) == 27: # Press 'Esc' key to exit
+            cv2.imshow('4301 Object Detector', image)
+            if bool(greet):
+                ProgramProper.on_greet()
+            if cv2.waitKey(1) == 27:  # Press 'Esc' key to exit
                 break
             if MAX_OBJ != detection_options.max_results:
                 detection_options = processor.DetectionOptions(max_results=MAX_OBJ, score_threshold=0.3)
@@ -113,16 +107,14 @@ class ProgramProper:
     def setup_gpio():
         """Set up GPIO pins and event detection."""
         GPIO.setmode(GPIO.BCM)
-        GPIO.setup(BUTTON_PIN_1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(BUTTON_PIN_2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(BUTTON_PIN_3, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(BUTTON_PIN_4, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup(BUTTON_PIN_5, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        for pin in BUTTON_PINS:
+            GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
     @staticmethod
     def on_greet():
-        print("Object detector on! Auto Mode!")
-        # gTTS("Hazard detector on! Auto Mode!").save("audio/boot.mp3")
+        global greet
+        greet = False
+        print("+++ 4301 Object Detector +++\nAUTO Mode!")
         time.sleep(1)
         os.system("mpg321 -q audio/model_object.mp3")
 
@@ -132,161 +124,90 @@ class ProgramProper:
         current_time = datetime.now().strftime("%Y/%m/%d_%H:%M:%S")
 
         if ProgramProper.AUTO_MODE:
-            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[0]) == GPIO.LOW:
                 ProgramProper.toggle_auto_interval()
-            if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[1]) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = False
-                print("Manual Mode!")
-                # gTTS("Manual Mode!").save("audio/manual.mp3")
+                print("MANUAL Mode!")
                 time.sleep(1)
                 os.system("mpg321 -q audio/manual.mp3")
-            if GPIO.input(BUTTON_PIN_3) == GPIO.LOW:
-                ProgramProper.toggle_max_objects()
-            if GPIO.input(BUTTON_PIN_4) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[2]) == GPIO.LOW:
+                ProgramProper.toggle_max_obj_qty()
+            if GPIO.input(BUTTON_PINS[3]) == GPIO.LOW:
                 ProgramProper.toggle_prob_threshold()
-            if GPIO.input(BUTTON_PIN_5) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[4]) == GPIO.LOW:
                 ProgramProper.shutdown()
-            ProgramProper.process_auto_mode(freq, current_time, cap)
+            ProgramProper.auto_mode(freq, current_time, cap)
 
         else:
-            if GPIO.input(BUTTON_PIN_1) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[0]) == GPIO.LOW:
                 ProgramProper.AUTO_MODE = True
-                print("Auto Mode!")
-                # gTTS("Auto Mode!").save("audio/auto.mp3")
+                print("AUTO Mode!")
                 time.sleep(1)
                 os.system("mpg321 -q audio/auto.mp3")
-            if GPIO.input(BUTTON_PIN_2) == GPIO.LOW:
-                ProgramProper.process_manual_mode(freq, current_time, cap)
-            if GPIO.input(BUTTON_PIN_3) == GPIO.LOW:
-                ProgramProper.toggle_max_objects()
-            if GPIO.input(BUTTON_PIN_4) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[1]) == GPIO.LOW:
+                ProgramProper.manual_mode(freq, current_time, cap)
+            if GPIO.input(BUTTON_PINS[2]) == GPIO.LOW:
+                ProgramProper.toggle_max_obj_qty()
+            if GPIO.input(BUTTON_PINS[3]) == GPIO.LOW:
                 ProgramProper.toggle_prob_threshold()
-            if GPIO.input(BUTTON_PIN_5) == GPIO.LOW:
+            if GPIO.input(BUTTON_PINS[4]) == GPIO.LOW:
                 ProgramProper.shutdown()
 
     @staticmethod
     def toggle_auto_interval():
-        if ProgramProper.AUTO_INTERVAL == 10:
-            ProgramProper.AUTO_INTERVAL = 20
-            print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-        elif ProgramProper.AUTO_INTERVAL == 20:
-            ProgramProper.AUTO_INTERVAL = 30
-            print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-        else:
-            ProgramProper.AUTO_INTERVAL = 10
-            print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
-            # gTTS(f"{ProgramProper.AUTO_INTERVAL}-second interval!").save(f"audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
-            
+        auto_intervals = [10, 20, 30]
+        ProgramProper.AUTO_INTERVAL = auto_intervals[(auto_intervals.index(ProgramProper.AUTO_INTERVAL) + 1) % len(auto_intervals)]
+        print(f"{ProgramProper.AUTO_INTERVAL}-second interval!")
+        time.sleep(1)
+        os.system(f"mpg321 -q audio/auto_{ProgramProper.AUTO_INTERVAL}s-int.mp3")
+
     @staticmethod
-    def toggle_max_objects():
+    def toggle_max_obj_qty():
         global MAX_OBJ
-        MAX_OBJ += 1
-        if MAX_OBJ > 10:
-            MAX_OBJ = 5
+        MAX_OBJ = 5 if MAX_OBJ >= 10 else MAX_OBJ + 1
         print(f"{MAX_OBJ} max detections!")
-        # gTTS(f"{MAX_OBJ} max detections!").save(f"audio/max_{MAX_OBJ}-det.mp3")
         time.sleep(1)
         os.system(f"mpg321 -q audio/max_{MAX_OBJ}-det.mp3")
-        
+
     @staticmethod
     def toggle_prob_threshold():
         global PROB_THRESHOLD
-        if PROB_THRESHOLD == 25:
-            PROB_THRESHOLD = 50
-            print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("Medium Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
-        elif PROB_THRESHOLD == 50:
-            PROB_THRESHOLD = 75
-            print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("High Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
-        else:
-            PROB_THRESHOLD = 25
-            print(f"{PROB_THRESHOLD}% probability threshold!")
-            # gTTS("Low Probability!").save(f"audio/prob_{PROB_THRESHOLD}.mp3")
-            time.sleep(1)
-            os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
-        
+        prob_thresholds = [25, 50, 75]
+        PROB_THRESHOLD = prob_thresholds[(prob_thresholds.index(PROB_THRESHOLD) + 1) % len(prob_thresholds)]
+        print(f"{PROB_THRESHOLD}% probability threshold!")
+        time.sleep(1)
+        os.system(f"mpg321 -q audio/prob_{PROB_THRESHOLD}.mp3")
+
     @staticmethod
     def shutdown():
-        print("Choose an acton: [1] Shutdown or [2] Reboot")
-        # gTTS("Choose an action: Press 1 to shutdown or 2 to reboot.").save("audio/off-prompt.mp3")
+        print("Choose an action: [1] Shutdown or [2] Reboot")
         time.sleep(1)
         os.system("mpg321 -q audio/off-prompt.mp3")
 
         while True:
-            if (GPIO.input(BUTTON_PIN_1) == GPIO.LOW):
+            if GPIO.input(BUTTON_PINS[0]) == GPIO.LOW:
                 print("Shutting down!")
-                # gTTS("Shutting down!").save("audio/shut.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut.mp3")
                 subprocess.run(["sudo", "shutdown", "-h", "now"])
-            elif (GPIO.input(BUTTON_PIN_2) == GPIO.LOW):
+            elif GPIO.input(BUTTON_PINS[1]) == GPIO.LOW:
                 print("Rebooting!")
-                # gTTS("Rebooting!").save("audio/shut_reboot.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_reboot.mp3")
                 subprocess.run(["sudo", "reboot", "-h", "now"])
-            elif (
-                GPIO.input(BUTTON_PIN_3) == GPIO.LOW
-                or GPIO.input(BUTTON_PIN_4) == GPIO.LOW
-                or GPIO.input(BUTTON_PIN_5) == GPIO.LOW
-            ):
+            elif any(GPIO.input(pin) == GPIO.LOW for pin in BUTTON_PINS[2:]):
                 print("Shutdown cancelled!")
-                # gTTS("Shutdown cancelled!").save("audio/shut_cancelled.mp3")
                 time.sleep(1)
                 os.system("mpg321 -q audio/shut_cancelled.mp3")
                 break
-        
-    @staticmethod
-    def process_auto_mode(freq, current_time, cap):
-        if bool(freq):
-            if time.time() - ProgramProper.AUTO_COUNTER >= ProgramProper.AUTO_INTERVAL and bool(freq):
-                ProgramProper.AUTO_COUNTER = time.time()
-                image_name = re.sub(r'[/:_]', '', current_time)
-                image_path = f"image/{image_name}.jpg"
-                voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
-
-                # Initialize pyttsx3 engine
-                engine = pyttsx3.init()
-                engine.save_to_file(voice, "audio/detection.mp3")
-                engine.runAndWait()
-
-                time.sleep(1)
-                os.system("mpg321 -q audio/detection.mp3")
-                freq['time'] = current_time
-                print(freq)
-                ret, frame = cap.read()
-                if ret:
-                    # cv2.imwrite(image_path, frame)
-                    # print(f"Image saved: {image_path}")
-                    pass
-                else:
-                    # print("Failed to capture image")
-                    # gTTS("Failed to capture image").save("audio/capture_failed.mp3")
-                    # time.sleep(1)
-                    # os.system("mpg321 -q audio/capture_failed.mp3")
-                    pass
 
     @staticmethod
-    def process_manual_mode(freq, current_time, cap):
-        if bool(freq):
-            image_name = re.sub(r'[/:_]', '', current_time)
-            image_path = f"image/{image_name}.jpg"
+    def auto_mode(freq, current_time, cap):
+        if bool(freq) and time.time() - ProgramProper.AUTO_COUNTER >= ProgramProper.AUTO_INTERVAL:
+            ProgramProper.AUTO_COUNTER = time.time()
             voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
 
-            # Initialize pyttsx3 engine
             engine = pyttsx3.init()
             engine.save_to_file(voice, "audio/detection.mp3")
             engine.runAndWait()
@@ -294,21 +215,25 @@ class ProgramProper:
             time.sleep(1)
             os.system("mpg321 -q audio/detection.mp3")
             freq['time'] = current_time
-            print(freq)
+            print(f"A: {freq}")
             ret, frame = cap.read()
-            if ret:
-                # cv2.imwrite(image_path, frame)
-                # print(f"Image saved: {image_path}")
-                pass
-            else:
-                # print("Failed to capture image")
-                # gTTS("Failed to capture image").save("audio/error_capture.mp3")
-                # time.sleep(1)
-                # os.system("mpg321 -q audio/error_capture.mp3")
-                pass
+
+    @staticmethod
+    def manual_mode(freq, current_time, cap):
+        if bool(freq):
+            voice = ", and ".join([f"{count} {item}" for item, count in freq.items()])
+
+            engine = pyttsx3.init()
+            engine.save_to_file(voice, "audio/detection.mp3")
+            engine.runAndWait()
+
+            time.sleep(1)
+            os.system("mpg321 -q audio/detection.mp3")
+            freq['time'] = current_time
+            print(f"M: {freq}")
+            ret, frame = cap.read()
         else:
             print("No detections!")
-            # gTTS("No detections!").save("audio/detection_none.mp3")
             time.sleep(1)
             os.system("mpg321 -q audio/detection_none.mp3")
 
@@ -334,5 +259,4 @@ class ProgramProper:
         return parser.parse_args()
 
 if __name__ == '__main__':
-    ProgramProper.on_greet()
     ProgramProper.main()
